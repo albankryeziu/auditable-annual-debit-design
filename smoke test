@@ -1,0 +1,55 @@
+name: Smoke test — import checks
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  import-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies (no Gurobi)
+        run: |
+          pip install numpy pandas scipy matplotlib pyarrow requests tqdm scikit-learn
+
+      - name: Check pipeline_config imports cleanly
+        run: python pipeline_config.py
+
+      - name: Check scripts import without Gurobi
+        run: |
+          # Scripts that do not require Gurobi at import time
+          python -c "import importlib.util, sys
+          scripts = [
+              'scripts/step05_auditable_state.py',
+              'scripts/step06_testbed.py',
+              'scripts/A_build_debit_optimization_inputs.py',
+              'scripts/C_train_m3.py',
+          ]
+          for s in scripts:
+              try:
+                  spec = importlib.util.spec_from_file_location('mod', s)
+                  # do not exec — just check syntax
+                  with open(s) as f:
+                      compile(f.read(), s, 'exec')
+                  print(f'[OK] {s}')
+              except SyntaxError as e:
+                  print(f'[FAIL] {s}: {e}')
+                  sys.exit(1)
+          "
+
+      - name: Lint with flake8 (warnings only)
+        continue-on-error: true
+        run: |
+          pip install flake8
+          flake8 scripts/ pipeline_config.py --max-line-length=120 --count --statistics
