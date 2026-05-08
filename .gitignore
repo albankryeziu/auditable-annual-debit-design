@@ -1,0 +1,37 @@
+# Local IDE / Python cache
+.idea/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Data and generated outputs
+data/
+outputs/
+PTDF_OUTPUT_PUBLICATION/
+results_replications/
+results_tu_modular_energy_dro/
+manifests/
+qc/
+
+# Old/archive folders
+archive_old/
+scripts_older_claude/
+
+# Large/generated file types
+*.csv
+*.csv.gz
+*.parquet
+*.xlsx
+*.xls
+*.zip
+*.7z
+*.pkl
+*.pickle
+*.png
+*.jpg
+*.jpeg
+*.pdf
+
+# Secrets / local environment
+.env
+*.env
