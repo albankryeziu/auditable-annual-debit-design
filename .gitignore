@@ -1,37 +1,94 @@
-# Local IDE / Python cache
-.idea/
-__pycache__/
-*.pyc
-.ipynb_checkpoints/
+# ─────────────────────────────────────────────────────────────────────────────
+# DATA  —  never commit raw or derived data to git
+# ─────────────────────────────────────────────────────────────────────────────
+data/external/
+data/raw/
+data/GOPACS/raw/
+data/derived/
 
-# Data and generated outputs
-data/
-outputs/
+# ─────────────────────────────────────────────────────────────────────────────
+# PTDF / relief layer outputs  —  large, rebuilt by H_export_ptdf_for_debit_paper.py
+# ─────────────────────────────────────────────────────────────────────────────
 PTDF_OUTPUT_PUBLICATION/
-results_replications/
-results_tu_modular_energy_dro/
-manifests/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pipeline outputs  —  rebuilt by D, E
+# ─────────────────────────────────────────────────────────────────────────────
+outputs/results/
+outputs/figures/
+outputs/tables/
+outputs/logs/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# QC and manifests  —  regenerated on each run
+# ─────────────────────────────────────────────────────────────────────────────
 qc/
+manifests/
 
-# Old/archive folders
-archive_old/
-scripts_older_claude/
-
-# Large/generated file types
-*.csv
-*.csv.gz
-*.parquet
-*.xlsx
-*.xls
-*.zip
-*.7z
-*.pkl
-*.pickle
-*.png
-*.jpg
-*.jpeg
-*.pdf
-
-# Secrets / local environment
+# ─────────────────────────────────────────────────────────────────────────────
+# Python
+# ─────────────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
 .env
-*.env
+.venv/
+venv/
+env/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Jupyter / IDE
+# ─────────────────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OS
+# ─────────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Gurobi
+# ─────────────────────────────────────────────────────────────────────────────
+gurobi.log
+*.lp
+*.mps
+*.rlp
+*.sol
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Large intermediate files
+# ─────────────────────────────────────────────────────────────────────────────
+*.parquet
+*.csv.gz
+*.h5
+*.hdf5
+*.feather
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LaTeX build artefacts  (keep .tex source, ignore compiled output)
+# ─────────────────────────────────────────────────────────────────────────────
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.run.xml
+*.synctex.gz
+*.toc
+*.pdf
