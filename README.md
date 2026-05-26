@@ -3,7 +3,7 @@
 **Replication package for:**  
 *Novel Approaches for Optimization Problems Under Uncertainty*  
 Alban Kryeziu · University of Groningen, Faculty of Economics and Business  
-Supervised by Prof. Evrim Ursavas, Dr. Ward Romeijnders, Dr. Stuart X. Zhu
+Supervised by Prof. Evrim Ursavas, Dr. Stuart X. Zhu
 
 ---
 
