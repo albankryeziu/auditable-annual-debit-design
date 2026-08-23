@@ -1,497 +1,693 @@
-# Annual Debit-Rule Design for Non-Firm Grid Access
+Auditable Annual Debit Design
 
-**Replication package for:**  
-*Novel Approaches for Optimization Problems Under Uncertainty*  
-Alban Kryeziu · University of Groningen, Faculty of Economics and Business  
-Supervised by Prof. Evrim Ursavas, Dr. Stuart X. Zhu
+Reproducibility and audit code for annual debit accounting of partial restrictions in non-firm transmission access, with a Dutch power-system test case and frozen out-of-sample evaluation.
 
----
+This repository contains the optimization, validation, provenance, and post-freeze evidence scripts used to compare three annual debit-accounting designs:
 
-## What This Repository Does
+M1 — touched-time accounting: debit depends on whether a participant is materially restricted in an hour.
 
-This package implements and evaluates three annual debit-rule architectures for
-TDTR-style non-firm electricity-network access contracts in the Dutch setting.
+M2 — uniform-depth accounting: debit is proportional to normalized restriction depth, x / capacity.
 
-A **TDTR (Time-Dependent Transport Right)** is a non-firm grid-access product
-under which the network operator may restrict a user's contracted transport
-capacity during at most approximately 15% of annual hours, subject to advance
-notice. When a restriction is imposed, it consumes part of the user's annual
-non-firm entitlement. How that consumption is counted is the **annual debit rule**.
+M3 — weighted-depth accounting: debit is proportional to q * x / capacity, where the participant-time weights q are learned and frozen before held-out evaluation.
 
-This repository compares three such rules:
+The code is intentionally fail-closed. Frozen inputs, source files, cards, evaluation manifests, solver certificates, replay checks, and output hashes are validated before downstream evidence is accepted.
 
-- **M1 — Touched-time accounting.** Any positive restriction in an eligible
-  hour costs one annual token, regardless of depth. Consistent with an
-  annual-hours interpretation of the 85/15 TDTR clause.
+Scope. This repository is a research reproducibility package. It does not represent an operational TSO tool, an AC-OPF implementation, a complete N-1 security certificate, or an official statement about Dutch network-access decisions.
 
-- **M2 — Uniform-depth accounting.** Debit equals normalized restriction depth
-  `x_{n,t} / P_n`. The state-independent, depth-sensitive benchmark.
+1. What is in this repository?
 
-- **M3 — Auditable weighted-depth accounting.** Debit equals
-  `q_{n,t} · x_{n,t} / P_n`, where `q` is a bounded, province-year-normalized
-  debit rate learned from public and reproducible proxy features.
+The current code base has three logical layers.
 
-All three rules are evaluated on the **same fixed constructed physical-relief
-testbed** built from public Dutch data (GOPACS, ENTSO-E day-ahead prices, CBS
-StatLine, ENTSOE load profiles). The physical layer does not change across rules;
-only the annual accounting law changes.
+Layer A — upstream data construction
 
-The main empirical finding over 2021–2025: the learned F2/LO rule reduces the
-constructed operating objective by 18.9% and emergency slack by 29.0% relative
-to uniform-depth accounting. The holdout year (2025) alone shows a 26.2% cost
-reduction and a 29.8% slack reduction.
+The earlier project version constructs the public-data backbone: GOPACS announcements, national/provincial load and residual-load histories, public stress indicators, candidate TDTR support, and the PTDF relief layer. These scripts produce the frozen network, request, and state artifacts consumed by the optimization layer.
 
----
+Layer B — frozen M1/M2/M3 optimization study
 
-## Understanding the TDTR Depth Budget
+The parent implementation validates the frozen Dutch test case, constructs M2 scarcity/KKT diagnostics, trains and freezes the M3 card, evaluates annual policies, evaluates rolling policies, independently replays solutions, and exports certified tables/figures/manifests.
 
-The TDTR contract has two distinct quantitative dimensions that this paper
-carefully separates:
+Layer C — post-freeze TPWRS/TSG evidence
 
-**Dimension 1 — Candidate-hour support (time eligibility).**  
-The 85/15 rule identifies the *hours* in which restrictions may occur. For the
-medium scenario used as the main benchmark, this is approximately 15% of annual
-hours, or ~1,314 hours per year. This is built by `G_build_tdtr_candidate_hour_support.py`
-and held fixed across M1, M2, and M3.
+The updated evidence scripts operate read-only on the frozen parent study. They compile the annual M1 certificate, perform selected-state nonlinear AC consistency checks, compile frozen rate-bound sensitivity evidence, run an exact post-freeze M3 gamma path, and create the final manuscript figures.
 
-**Dimension 2 — Annual depth allowance (how much can be restricted inside eligible hours).**  
-This is a separate question. A product that allows restrictions in 15% of hours
-does not automatically permit full-depth restriction in all of those hours. The
-depth allowance `H_depth` controls the cumulative full-power-equivalent hours of
-restriction permitted per year per province. It is calibrated as:
+The distinction between Layers B and C is important: the post-freeze scripts are deliberately not allowed to silently modify the frozen parent source tree or refit the selected M3 card.
 
-```
-H_depth  =  rho_depth  ×  |S_y|
-```
+2. Debit-accounting rules
 
-where `|S_y|` is the number of selected TDTR candidate hours and `rho_depth`
-is a scarcity-calibration parameter. The paper uses **`rho_depth = 0.02`**,
-giving `H_depth ≈ 0.02 × 1314 ≈ 26 full-power-equivalent hours` per province
-per year. This is intentionally tight to create meaningful annual scarcity for
-the M2/M3 comparison.
+Let x[n,t] denote the restriction imposed on participant n in hour t, and let P[n] be the participant's reference capacity.
 
-**What is `DEBIT_DEPTH_BUDGET_HOURS = 300`?**  
-This is a *legacy fallback* in `pipeline_config.py` that is only active when
-`DEBIT_DEPTH_BUDGET_MODE = 'fixed'` — a mode that is **not used in any paper
-run**. The paper always uses `DEBIT_DEPTH_BUDGET_MODE = 'rho_support'`, which
-computes the budget dynamically from `rho_depth × |S_y|`. The 300-hour number
-has no TDTR contractual meaning; it is simply a round number that makes the
-budget non-binding in exploratory runs where you want to turn off depth scarcity
-entirely. Do not use `fixed` mode for any result reported in the paper.
+Rule
 
-**Summary of budget parameters used in the paper:**
+Debit concept
 
-| Parameter | Value | Meaning |
-|---|---|---|
-| `TDTR_SUPPORT_SCENARIO` | `medium` | ~15% of annual hours selected |
-| `TDTR_AVAILABILITY_SHARE` | `0.85` | 85/15 TDTR availability clause |
-| `DEBIT_DEPTH_BUDGET_MODE` | `rho_support` | Budget = rho × support hours |
-| `DEBIT_DEPTH_BUDGET_RHO` | `0.02` | Average 2% depth per support hour |
-| `H_depth` (implied) | ~26 h | Full-power-equivalent hours per province per year |
-| `H_touch` (M1, implied) | ~1314 h | Equals selected support hours |
-| `DEBIT_DEPTH_BUDGET_HOURS` | `300` | **Fallback only. Never active in paper runs.** |
+Implementation
 
----
+M1
 
-## Repository Structure
+Touched time
 
-```
+Counts materially restricted participant-hours; solved as a MILP because touch indicators are binary.
+
+M1-LP
+
+Continuous M1 lower bound
+
+Projects the continuous relaxation to sum_t x[n,t]/xbar[n,t] <= H[n]; used only as a lower-bound formulation.
+
+M2
+
+Uniform depth
+
+Uses sum_t x[n,t]/P[n] with a participant-specific annual allowance.
+
+M3
+
+Weighted depth
+
+Uses sum_t q[n,t] x[n,t]/P[n]; q comes from a frozen three-rate card.
+
+The common annual M1/M2 comparison uses a 15% duration/depth allowance. The main M3 reporting point is rho = 0.03, with the full frozen grid
+
+0.15, 0.10, 0.075, 0.05, 0.03, 0.02
+
+The optimization is lexicographic:
+
+minimize aggregate directed thermal-limit relaxation; then
+
+among Stage-I-optimal solutions, minimize restricted energy with a deterministic numerical tie-break.
+
+The signed network convention is
+
+background flow = H @ p_background
+request flow    = background flow - G @ requested_transport
+post flow       = request flow + G @ restriction
+
+All retained signed rows are closed and independently replayed before a solution is accepted.
+
+3. M3-OB-KKT card construction
+
+M3 is not an unconstrained machine-learning policy. The card is trained and frozen under an explicit information and validation protocol.
+
+The training pipeline:
+
+solves M2 teacher problems on the training/validation period;
+
+extracts deterministic selected annual-budget duals;
+
+forms scarcity labels
+
+alpha[n,t] = mu[n] * x[n,t] / P[n]
+
+predicts within-class scarcity using only permitted features;
+
+freezes class-specific score thresholds using training data only;
+
+maps scores to three buckets;
+
+solves a three-rate convex QP for each debit class;
+
+enforces monotone rates, rate bounds, and reference-weighted mean-one neutrality;
+
+selects the deployable candidate on the validation year; and
+
+serializes the selected card, model bundle, thresholds, hashes, and validation metadata before held-out testing.
+
+The three-rate problem minimizes a scarcity-weighted rate objective plus a small quadratic regularizer, subject to
+
+q1 >= q2 >= q3
+q_min <= qb <= q_max
+reference-weighted mean(q) = 1
+
+The selected score family, thresholds, and card are not refit on 2029–2031.
+
+4. Frozen study split
+
+The code uses the following predeclared year roles:
+
+Role
+
+Years
+
+Training
+
+2025–2027
+
+Validation
+
+2028
+
+Held-out evaluation
+
+2029–2030
+
+Confirmatory evaluation
+
+2031
+
+The configured Dutch case is expected to contain:
+
+45 buses;
+
+114 participants;
+
+847 monitored directed rows; and
+
+8 retained contingencies.
+
+These dimensions are validated, not silently imposed.
+
+5. Repository structure
+
+The updated script archive is logically organized as follows.
+
 .
-├── pipeline_config.py                  # Single source of truth for all paths and parameters
-├── run_pipeline.py                     # Master pipeline runner
-├── environment.yml                     # Conda environment specification
-├── requirements.txt                    # pip fallback
+├── README.md
+├── PACKAGE_MANIFEST.json              # Hash manifest for the post-freeze evidence subset
+├── SCIENTIFIC_PROTOCOL.md             # Scientific scope of Runs 12–14
 │
-├── scripts/
-│   │
-│   │  ── GOPACS data pipeline ──────────────────────────────────────────
-│   ├── step00_fetch_gopacs_announcements.py    # Fetch raw GOPACS Machine Announcements API v7
-│   ├── step01_crosswalk_real.py                # GOPACS location → province crosswalk
-│   ├── step01b_plot_province_congestion_heatmaps.py
-│   ├── step02_announcement_panel_real.py       # Province-hour announcement panel
-│   ├── step03_called_activity_safe.py          # GOPACS called-activity panel
-│   ├── step04_burden_proxy.py                  # Burden proxy (B_agg, E_exposure, B_proxy_baseline)
-│   ├── step05_auditable_state.py               # Master auditable-state panel
-│   ├── step06_testbed.py                       # Operational testbed + participant map
-│   │
-│   │  ── Load and residual-load backbone ────────────────────────────────
-│   ├── build_national_load_history_master.py   # National hourly load 2006–2025
-│   ├── learn_national_load_and_sector_shapes.py
-│   ├── build_province_sector_targets_and_factors.py
-│   ├── learn_province_factors.py               # OMEGA_MODE='freeze', CO_UNIT='mwh'
-│   ├── build_provincial_hourly_load_from_learned_targets_updated.py
-│   ├── build_provincial_residual_load_from_learned_load_optionB.py
-│   ├── build_province_hour_public_stress_panel.py  # Province-hour public stress backbone
-│   ├── build_nl_ptdf_and_stress.py
-│   ├── make_targets_and_offshore_panel_from_table.py
-│   │
-│   │  ── TDTR support and physical relief layer ─────────────────────────
-│   ├── G_build_tdtr_candidate_hour_support.py  # Candidate TDTR hours (G → H → A)
-│   ├── H_export_ptdf_for_debit_paper.py        # Fixed physical relief layer
-│   ├── F_scarcity_boundary.py                  # Scarcity boundary diagnostics
-│   │
-│   │  ── Annual debit-rule optimization pipeline ────────────────────────
-│   ├── A_build_debit_optimization_inputs.py    # Annual LP inputs (support, budgets, costs)
-│   ├── B_run_annual_lp.py                      # Weighted-depth LP/QP solver API (M2, M3)
-│   ├── B1_run_m1_touched_only.py               # Support-aware M1 touched-time solver
-│   ├── C_train_m3.py                           # Train F0–F3 × {plain, OI, LO} debit weights
-│   ├── D_run_full_benchmark.py                 # Final benchmark (source of truth for paper)
-│   ├── E_make_advanced_figures.py              # Paper figures and tables
-│   └── validate_pipeline.py                    # Artifact validation
+│   ── Parent frozen optimization implementation ─────────────────────────
+├── __init__.py
+├── config.py                           # Study years, paths, solver profiles, tolerances
+├── io.py                               # Frozen-input discovery, hashes, alignment, manifests
+├── model.py                            # Annual/rolling M1, M1-LP, M2, M3 + replay/certificates
+├── m3_ob_kkt.py                        # KKT labels, score models, buckets, rate QP, frozen cards
+├── reporting.py                        # Transactional outputs, tables, figures, manifests, ZIP export
 │
-├── data/
-│   ├── external/                       # Raw inputs (NOT tracked in git — see .gitignore)
-│   │   ├── Netherlands_prices.csv      # ENTSO-E day-ahead prices 2021–2025
-│   │   ├── time_series_profiles_2015_2020.csv   # ENTSO-E load profiles
-│   │   ├── 82538NED_CBS_COMPANIES.csv  # CBS StatLine: companies
-│   │   ├── 81528NED_CBS_HOUSEHOLDS.csv # CBS StatLine: households
-│   │   └── 83704NED_CBS_DWELLINGS.csv  # CBS StatLine: dwellings
-│   ├── GOPACS/raw/                     # GOPACS API responses (NOT tracked)
-│   └── derived/                        # Built by pipeline (NOT tracked)
+│   ── Parent reproduction stages ────────────────────────────────────────
+├── RUN_01_VALIDATE_INPUTS.py           # Validate/hash every frozen input partition
+├── RUN_02_SCARCITY_DIAGNOSTIC.py       # M2 teachers, selected dual/KKT diagnostics
+├── RUN_03_TRAIN_AND_FREEZE_CARD.py     # Train/validate M3 candidates and freeze selected card
+├── RUN_04A_VALIDATE_M1_PROFILE.py      # Validate annual M1 continuous-relaxation lower bound
+├── RUN_03B_FREEZE_EVALUATION_V2.py     # Freeze amended evaluation protocol; no card retraining
+├── RUN_04_EVALUATE_ANNUAL.py           # Held-out/confirmatory annual M1-LP/M2/M3 evaluation
+├── RUN_05_EVALUATE_ROLLING.py          # Rolling M1/M2/M3 evaluation and annual M1 certificate
+├── RUN_06_EXPORT_OUTPUTS.py             # Tables, sanity checks, manifests, final package
 │
-├── PTDF_OUTPUT_PUBLICATION/            # Constructed relief layer (NOT tracked in git)
-│   └── debit_paper_inputs/
-│       ├── active_branches_{year}.csv
-│       ├── branch_hour_requirements_{year}.csv.gz
-│       └── branch_hour_province_coefficients_{year}.csv.gz
+│   ── Narrow post-freeze recovery/audit utilities ───────────────────────
+├── RUN_05_RESUME_NUMERICAL_AMENDMENT.py # Controlled rolling-M1 numerical recovery driver
+├── RUN_AC_ENGINEERING_AUDIT_V2.py       # Static AC engineering audit; superseded for policy states by V3
+├── RUN_AC_POLICY_HOUR_VALIDATION_V3.py  # Selected policy-hour P/Q reconstruction + AC validation
 │
-├── outputs/
-│   ├── results/                        # Benchmark CSVs and solution files (NOT tracked)
-│   ├── figures/                        # Paper figures (NOT tracked)
-│   └── tables/                         # LaTeX tables (NOT tracked)
+│   ── Real post-freeze TPWRS/TSG evidence ───────────────────────────────
+├── ieee_tsg_real_config.py             # Paths and controls for post-freeze experiments
+├── real_experiment_common.py           # Read-only freeze validation and shared utilities
+├── RUN_00_DIAGNOSE_PARENT_FREEZE.py    # Check tracked frozen hashes before post-freeze work
+├── RUN_12_REAL_M1_BOUND_ANALYSIS.py     # Annual M1 certificate + chronology diagnostics
+├── RUN_13_REAL_SELECTED_AC_VALIDATION.py# Compile/rerun official selected-state AC-V3 evidence
+├── RUN_13B_OPTIONAL_FULL_YEAR_BACKGROUND_AC.py # Optional all-hour background AC reconstruction
+├── RUN_14A_COMPILE_FROZEN_RATE_BOUND_EVIDENCE.py # Exact frozen tight/base/wide rate cases
+├── RUN_14B_REAL_M3_GAMMA_PATH.py       # Exact gamma sensitivity; M3 + M2-MATCHED solves
+├── RUN_ALL_IEEE_TSG_REAL_EXPERIMENTS.py# Convenience orchestrator; see note below
 │
-├── qc/                                 # Quality-control summaries
-└── manifests/                          # Fetch manifests and pipeline logs
-```
+│   ── Publication figures ───────────────────────────────────────────────
+├── PLOT_IEEE_TPWRS_FINAL_FIGURES.py     # Recommended final TPWRS figure generator
+├── PLOT_IEEE_TSG_REAL_FIGURES_COLOR.py  # Alternative visual-only color rendering
+│
+│   ── Legacy/superseded figure utilities ────────────────────────────────
+├── run_06_ieee_tsg_experiments.py       # Legacy extractor; not the current gamma workflow
+└── plot_ieee_tsg_figures.py             # Legacy plotting script; do not use for final claims
+
+Relation to the older public-data pipeline
+
+If the upstream data-construction scripts are kept in the same GitHub repository, a clean top-level layout is:
+
+.
+├── README.md
+├── upstream_data_pipeline/
+│   ├── pipeline_config.py
+│   ├── run_pipeline.py
+│   ├── scripts/
+│   │   ├── step00_fetch_gopacs_announcements.py
+│   │   ├── step01_crosswalk_real.py
+│   │   ├── step01b_plot_province_congestion_heatmaps.py
+│   │   ├── step02_announcement_panel_real.py
+│   │   ├── step03_called_activity_safe.py
+│   │   ├── step04_burden_proxy.py
+│   │   ├── step05_auditable_state.py
+│   │   ├── step06_testbed.py
+│   │   ├── build_national_load_history_master.py
+│   │   ├── learn_national_load_and_sector_shapes.py
+│   │   ├── build_province_sector_targets_and_factors.py
+│   │   ├── learn_province_factors.py
+│   │   ├── build_provincial_hourly_load_from_learned_targets_updated.py
+│   │   ├── build_provincial_residual_load_from_learned_load_optionB.py
+│   │   ├── build_province_hour_public_stress_panel.py
+│   │   ├── build_nl_ptdf_and_stress.py
+│   │   ├── make_targets_and_offshore_panel_from_table.py
+│   │   ├── G_build_tdtr_candidate_hour_support.py
+│   │   ├── H_export_ptdf_for_debit_paper.py
+│   │   ├── F_scarcity_boundary.py
+│   │   ├── A_build_debit_optimization_inputs.py
+│   │   ├── B_run_annual_lp.py
+│   │   ├── B1_run_m1_touched_only.py
+│   │   ├── C_train_m3.py
+│   │   ├── D_run_full_benchmark.py
+│   │   ├── E_make_advanced_figures.py
+│   │   └── validate_pipeline.py
+│   └── ...
+│
+├── TPWRS_M3_OB_KKT_FINAL/              # Frozen parent optimization/evaluation package
+└── IEEE_TSG_REAL_EXPERIMENTS_V2/       # Read-only post-freeze evidence package
 
----
+This separation is preferable to mixing post-freeze experiment scripts into the frozen parent directory, because the freeze validator hashes the parent source tree.
 
-## Prerequisites
+6. Required frozen inputs
+
+The optimization layer does not reconstruct the raw GOPACS/public-data pipeline. It expects a frozen Dutch case with the following artifacts.
 
-### Software
+frozen/
+├── network/
+│   ├── network_matrices.npz
+│   └── network_rows.parquet
+├── actions/
+│   ├── participant_actions.npz
+│   ├── participant_action_metadata.parquet
+│   ├── redispatch_actions.npz
+│   └── redispatch_action_metadata.parquet
+├── contract/
+│   ├── participants.parquet
+│   ├── request_partition_manifest.json
+│   └── requests/
+│       └── participant_requests_hourly_{2025..2031}.parquet
+└── states/
+    └── dutch_nodal_pq_states_hourly_{2025..2031}.parquet
 
-| Tool | Version | Purpose |
-|---|---|---|
-| Python | ≥ 3.10 | All scripts |
-| Gurobi | ≥ 10.0 | LP/MIP solver (B, B1, C, D) |
-| Anaconda / Miniconda | any | Recommended environment manager |
-| Git | any | Version control |
-| Git LFS | any | Large file handling (optional) |
+The associated frozen source-data root must also contain
 
-A **Gurobi academic licence** is free for university researchers. Register at
-[gurobi.com/academia](https://www.gurobi.com/academia/academic-program-and-licenses/)
-and activate with `grbgetkey <your-key>`.
+hourly_system_state.parquet
+retained_contingencies.parquet
 
-### Python packages
+Large raw, derived, frozen, result, cache, and solver-log files should normally remain outside Git unless they are intentionally published as a separate reproducibility release.
 
-```
-numpy >= 1.24
-pandas >= 2.0
-scipy >= 1.10
-gurobipy >= 10.0
-scikit-learn >= 1.3
-matplotlib >= 3.7
-pyarrow >= 12.0
-requests >= 2.28
-tqdm >= 4.65
-```
+7. Software requirements
 
----
+The current archive does not contain a fully pinned environment file, so exact scientific reproduction should use the same environment recorded for the frozen parent campaign whenever that record is available.
 
-## Data Requirements
+Core Python dependencies are:
 
-The following external files must be placed in `data/external/` before running
-the pipeline. None are tracked in git due to size or licensing.
+numpy
+pandas
+scipy
+pyarrow
+joblib
+scikit-learn
+matplotlib
+gurobipy
+pandapower
 
-| File | Source | Notes |
-|---|---|---|
-| `Netherlands_prices.csv` | [ENTSO-E Transparency Platform](https://transparency.entsoe.eu/) | Day-ahead prices NL, 2021–2025, hourly |
-| `time_series_profiles_2015_2020.csv` | ENTSO-E / Open Power System Data | National load profiles 2015–2020 |
-| `time_series_2006_2018.csv` | ENTSO-E historical | National load history |
-| `82538NED_CBS_COMPANIES.csv` | [CBS StatLine](https://opendata.cbs.nl/statline/) | Dataset 82538NED |
-| `81528NED_CBS_HOUSEHOLDS.csv` | CBS StatLine | Dataset 81528NED |
-| `83704NED_CBS_DWELLINGS.csv` | CBS StatLine | Dataset 83704NED |
+seaborn is needed only by the superseded legacy plotting script.
 
-GOPACS Machine Announcements are fetched automatically by `step00` using the
-GOPACS public API v7. No credentials are required for the Machine Announcements
-endpoint as of 2025.
+A valid Gurobi license is required for the annual/rolling optimization and the M3 three-rate QP. The AC validation scripts require a compatible pandapower installation.
 
----
+A typical environment setup is:
 
-## Installation
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
 
-### Step 1 — Clone the repository
+pip install numpy pandas scipy pyarrow joblib scikit-learn matplotlib pandapower gurobipy
 
-```bash
-git clone https://github.com/<your-username>/debit-rule-paper.git
-cd debit-rule-paper
-```
+Do not change solver versions, tolerances, thread settings, or frozen source files and then describe the run as a byte-for-byte reproduction of the frozen campaign.
 
-### Step 2 — Create the conda environment
+8. Configuration
 
-```bash
-conda env create -f environment.yml
-conda activate debit-rule
-```
+Parent optimization package
 
-Or with pip:
+Edit config.py only when creating a new independent reproduction. In particular, verify:
 
-```bash
-pip install -r requirements.txt
-```
+FROZEN_ROOT = Path(r"...\results\frozen")
+SOURCE_ROOT = Path(r"...\data\frozen_dutch_case")
 
-### Step 3 — Activate Gurobi
+The parent method freeze is protected by
 
-```bash
-grbgetkey YOUR-GUROBI-KEY
-```
+ALLOW_PARENT_PIPELINE_REBUILD = False
 
-Verify:
+Leave this False for the existing frozen study.
 
-```bash
-python -c "import gurobipy; gurobipy.Model()"
-```
+Post-freeze evidence package
 
-### Step 4 — Place external data
+Edit ieee_tsg_real_config.py so that
 
-Copy your ENTSO-E and CBS files into `data/external/`. The paths are defined in
-`pipeline_config.py` and can be overridden with environment variables.
+PROJECT_ROOT = Path(r"...\TPWRS_M3_OB_KKT_FINAL")
+ADDENDUM_ROOT = Path(r"...\TPWRS_OPERATIONAL_VALIDATION_ADDENDUM")
 
-### Step 5 — Verify configuration
+point to the frozen parent project and AC-V3 addendum respectively.
 
-```bash
-python pipeline_config.py   # should run without errors and create directories
-```
+Post-freeze outputs are written under
 
----
+TPWRS_M3_OB_KKT_FINAL/results/ieee_tsg_real_experiments/
 
-## Running the Full Pipeline
+The post-freeze scripts themselves should remain outside TPWRS_M3_OB_KKT_FINAL.
 
-### Option A — Master runner (recommended)
+9. Reproduction workflows
 
-```bash
-python run_pipeline.py
-```
+A. Reproduce the parent method from scratch
 
-This runs all stages in order. To resume from a failed stage:
+Use this only for a deliberate independent reproduction in a clean directory. It is not the normal way to extend an already frozen study.
 
-```bash
-python run_pipeline.py --from-stage G
-```
+python RUN_01_VALIDATE_INPUTS.py
+python RUN_02_SCARCITY_DIAGNOSTIC.py
+python RUN_03_TRAIN_AND_FREEZE_CARD.py
+python RUN_04A_VALIDATE_M1_PROFILE.py
+python RUN_03B_FREEZE_EVALUATION_V2.py
+python RUN_04_EVALUATE_ANNUAL.py
+python RUN_05_EVALUATE_ROLLING.py
+python RUN_06_EXPORT_OUTPUTS.py
 
-To run a single stage:
+If METHOD_FREEZE.json already exists, Runs 01–03 are intentionally locked unless the user explicitly enables a separate full rebuild.
 
-```bash
-python run_pipeline.py --only D
-```
+B. Continue an already frozen Evaluation-V2 study
 
-### Option B — Manual stage-by-stage (Windows)
+The normal parent-side sequence is:
 
-The exact sequence used to produce the paper results. Run from the repo root.
+python RUN_04A_VALIDATE_M1_PROFILE.py
+python RUN_03B_FREEZE_EVALUATION_V2.py
+python RUN_04_EVALUATE_ANNUAL.py
+python RUN_05_EVALUATE_ROLLING.py
+python RUN_06_EXPORT_OUTPUTS.py
 
-```bat
-:: ── Set TDTR scenario ─────────────────────────────────────────────────────
-set TDTR_SUPPORT_SCENARIO=medium
-set TDTR_SUPPORT_REQUIRED=1
-set PTDF_APPLY_TDTR_SUPPORT_TO_REQUIREMENTS=1
-set TDTR_SUPPORT_APPLY_TO_REQUIREMENTS=1
-set TDTR_SUPPORT_APPLY_TO_PBAR=1
+Do not regenerate the parent card or overwrite the original method freeze simply because a later diagnostic script was added.
 
-:: ── GOPACS data pipeline ───────────────────────────────────────────────────
-python scripts\step00_fetch_gopacs_announcements.py
-python scripts\step01_crosswalk_real.py
-python scripts\step02_announcement_panel_real.py
-python scripts\step03_called_activity_safe.py
-python scripts\step04_burden_proxy.py
-python scripts\step05_auditable_state.py
+C. Run the post-freeze manuscript evidence
 
-:: ── Load and stress backbone ───────────────────────────────────────────────
-python scripts\build_national_load_history_master.py
-python scripts\learn_national_load_and_sector_shapes.py
-python scripts\build_province_sector_targets_and_factors.py
-python scripts\learn_province_factors.py
-python scripts\build_province_hour_public_stress_panel.py
+First diagnose provenance:
 
-:: ── Testbed construction ───────────────────────────────────────────────────
-python scripts\step06_testbed.py
+python RUN_00_DIAGNOSE_PARENT_FREEZE.py
 
-:: ── TDTR support and fixed relief layer ───────────────────────────────────
-python scripts\G_build_tdtr_candidate_hour_support.py
-python scripts\H_export_ptdf_for_debit_paper.py
+A changed or missing tracked frozen file is a hard failure. Newly added post-freeze scripts may appear as untracked extras and are reported separately.
 
-:: ── Annual optimization inputs ────────────────────────────────────────────
-python scripts\A_build_debit_optimization_inputs.py
+Then run the low-risk evidence compilation:
 
-:: ── M1 touched-time benchmark ─────────────────────────────────────────────
-python scripts\B1_run_m1_touched_only.py
+python RUN_12_REAL_M1_BOUND_ANALYSIS.py
+python RUN_13_REAL_SELECTED_AC_VALIDATION.py
+python RUN_14A_COMPILE_FROZEN_RATE_BOUND_EVIDENCE.py
 
-:: ── Train M3 debit weights ────────────────────────────────────────────────
-python scripts\C_train_m3.py
+Run the exact gamma sensitivity when required:
 
-:: ── Final benchmark (source of truth for paper) ───────────────────────────
-python scripts\D_run_full_benchmark.py
+python RUN_14B_REAL_M3_GAMMA_PATH.py
 
-:: ── Paper figures and tables ──────────────────────────────────────────────
-python scripts\E_make_advanced_figures.py
-```
+The default gamma grid is
 
-### Scenario sensitivity loop (all three support scenarios)
+0.25, 0.35, 0.45, 0.55, 0.65, 0.70, 0.80, 0.90, 1.00, 1.10,
+1.20, 1.30, 1.40, 1.50, 1.60, 1.70, 1.80, 1.90, 1.95, 2.00
 
-```bat
-python scripts\G_build_tdtr_candidate_hour_support.py
+with
 
-for %%S in (restrictive medium wide) do (
-    set TDTR_SUPPORT_SCENARIO=%%S
-    python scripts\H_export_ptdf_for_debit_paper.py
-    python scripts\A_build_debit_optimization_inputs.py
-    python scripts\B1_run_m1_touched_only.py
-    python scripts\C_train_m3.py
-    python scripts\D_run_full_benchmark.py
-    python scripts\E_make_advanced_figures.py
-)
-```
+gamma = 0 conceptually corresponding to the flat M2 card;
 
-**Important:** Always rerun C when changing the support scenario, because the LO
-architecture's training weights depend on the scenario-specific operating layer.
+gamma = 1 reproducing the frozen selected M3 card; and
 
----
+each gamma/year requiring an M3 solve and a participant-specific M2-MATCHED solve.
 
-## Key Configuration Parameters
+For a smoke test, temporarily set
 
-All parameters live in `pipeline_config.py` and can be overridden with
-environment variables.
+GAMMA_OVERRIDE_GRID = (0.7, 1.0, 1.3)
 
-### TDTR contract parameters
+then remove the smoke-test outputs, restore
 
-| Parameter | Default | Description |
-|---|---|---|
-| `TDTR_SUPPORT_SCENARIO` | `medium` | `restrictive` (10%), `medium` (15%), `wide` (20%) |
-| `TDTR_AVAILABILITY_SHARE` | `0.85` | TDTR availability guarantee (85/15 rule) |
-| `TDTR_RESTRICTION_SHARE` | `0.15` | Complement of availability share |
+GAMMA_OVERRIDE_GRID = None
 
-### Depth allowance calibration
+and execute the full campaign.
 
-| Parameter | Default | Description |
-|---|---|---|
-| `DEBIT_DEPTH_BUDGET_MODE` | `rho_support` | **Always use `rho_support` for paper runs.** Other modes: `rho_annual`, `fixed` |
-| `DEBIT_DEPTH_BUDGET_RHO` | `0.02` | Average allowed depth per support hour. **Paper value: 0.02.** |
-| `DEBIT_DEPTH_BUDGET_HOURS` | `300` | **Fallback only.** Active only when `DEPTH_BUDGET_MODE='fixed'`. Never used in paper runs. Implies 300 full-power-equivalent hours per province per year with no reference to the support size. |
-| `DEBIT_TOUCH_BUDGET_FROM_SUPPORT` | `True` | M1 budget equals selected support hours |
+D. Optional all-hour background AC reconstruction
 
-### Solver and model
+This experiment is disabled by default:
 
-| Parameter | Default | Description |
-|---|---|---|
-| `MAIN_FEATURE_SET` | `F2` | Main M3 feature level |
-| `MAIN_M3_VARIANT` | `M3_LO` | Main M3 training architecture |
-| `M_PENALTY` | `5000.0` | Emergency slack penalty (EUR-eq./MWh) |
-| `DEBIT_CONTRACT_CAPACITY_FRACTION` | `0.30` | Contracted capacity as fraction of p99 load pressure |
+RUN_FULL_YEAR_BACKGROUND_AC = False
 
-### Train/test split
+To enable it, set for example
 
-| Parameter | Default | Description |
-|---|---|---|
-| `TRAIN_YEARS` | `2021,2022,2023` | Years used to fit M3 weights |
-| `VAL_YEARS` | `2024` | Validation year |
-| `TEST_YEARS` | `2025` | Holdout year (out-of-sample) |
+RUN_FULL_YEAR_BACKGROUND_AC = True
+FULL_YEAR_AC_YEARS = (2031,)
 
----
+and run
 
-## Output Files
+python RUN_13B_OPTIONAL_FULL_YEAR_BACKGROUND_AC.py
 
-After a full run, the following files contain the paper's results:
+This tests the intact all-hour background-state reconstruction. It is not a replacement for the selected policy-state AC-V3 evidence and is not a full annual AC-feasibility proof.
 
-```
-outputs/results/benchmark_full_results.csv        # Main annual comparison table
-outputs/results/benchmark_pairwise_differences.csv # M1-M2, M2-M3, M1-M3 pairwise
-outputs/results/kkt_equalization_diagnostic.csv   # Alpha = mu*x/P scarcity diagnostics
-outputs/results/benchmark_manifest.json           # Full run metadata
-outputs/results/benchmark_q_audit.csv             # Learned-rate audit statistics
-outputs/results/solutions/                         # Province-hour solution files
+E. Generate the final TPWRS figures
 
-outputs/figures/advanced/                          # Paper figures (F1–F10)
-outputs/tables/                                    # LaTeX tables (T1–T5)
+Use the final reporting-only plotter:
 
-data/derived/m3_debit_weights_by_year.parquet     # Learned M3 debit weights
-data/derived/m3_training_manifest.json            # Training metadata
-```
+python PLOT_IEEE_TPWRS_FINAL_FIGURES.py \
+  --results-root ".../TPWRS_M3_OB_KKT_FINAL/results/ieee_tsg_real_experiments" \
+  --output-dir ".../figures"
 
-**Important:** `D_run_full_benchmark.py` is the sole source of truth for any
-numerical claim in the paper. Do not use C-stage training summaries as paper
-results.
+It produces:
 
----
+Fig1_M1_Certificate_TPWRS.pdf
+Fig2_AC_Consistency_TPWRS.pdf
+Fig3_M3_Gamma_Path_TPWRS.pdf
+FIGURE_STATUS_TPWRS.json
 
-## Reproducing the Paper's Main Results
+PNG previews are generated as well.
 
-The reported results (Table 3) require:
+10. Post-freeze output structure
 
-1. `TDTR_SUPPORT_SCENARIO = medium`
-2. `DEBIT_DEPTH_BUDGET_MODE = rho_support`
-3. `DEBIT_DEPTH_BUDGET_RHO = 0.02`
-4. `MAIN_FEATURE_SET = F2`, `MAIN_M3_VARIANT = M3_LO`
-5. `TRAIN_YEARS = 2021,2022,2023`, `TEST_YEARS = 2025`
-6. Gurobi solving all LPs to optimality (default tolerance)
+results/ieee_tsg_real_experiments/
+├── 01_m1_bound_analysis/
+├── 02_selected_ac_validation/
+├── 02b_full_year_background_ac/        # optional
+├── 03a_frozen_rate_bound_evidence/
+├── 03b_m3_gamma_path/
+└── figures/
 
-Expected aggregate results (2021–2025, relative to M2):
+The parent study separately writes structured artifacts under
 
-| Metric | Value |
-|---|---|
-| Aggregate cost saving | 18.9% |
-| Aggregate slack reduction | 29.0% |
-| Holdout-year (2025) cost saving | 26.2% |
-| Holdout-year slack reduction | 29.8% |
+results/
+├── manifests/
+├── validation/
+├── scarcity/
+├── cards/
+├── annual/
+├── rolling/
+├── replay/
+├── ac/
+├── tables/
+├── figures/
+├── cache/
+└── logs/
 
-Note: years 2021–2023 are **in-sample** for the M3 regression. The holdout
-evidence is 2024 (validation) and 2025 (test). Always report 2025 results
-separately when making out-of-sample claims.
+Writes are transactional where appropriate, and status files include artifact hashes so incomplete runs are not silently treated as final evidence.
 
----
+11. Main scientific certificates and diagnostics
 
-## Interpreting DEBIT_DEPTH_BUDGET_HOURS = 300 in Context
+Annual M1 certificate
 
-To be precise about where this number comes from and what it would imply if
-activated:
+The valid annual scalar relationship is
 
-With the paper's actual `rho_support` mode and `rho=0.02`:
-```
-H_depth = 0.02 × 1314 hours ≈ 26 full-power-equivalent hours per province
-```
-This creates genuine scarcity: budgets bind in 2022–2025 for all 12 provinces.
+S_M2 <= S_M1-LP <= S_M1* <= S_rolling-M1
 
-If someone were to switch to `DEPTH_BUDGET_MODE=fixed` with `HOURS=300`:
-```
-H_depth = 300 full-power-equivalent hours per province
-```
-This is roughly 11.5× more generous. At this level, the annual budget would
-almost certainly be non-binding in all years, M2 and M3 would both solve to
-the same unconstrained LP solution, and the M2–M3 comparison would be
-uninformative. The 300 value is a safe exploratory default that intentionally
-turns off depth scarcity so you can debug the physical relief layer in isolation.
-It has no grounding in the 85/15 TDTR contract clause.
+where
 
-**Never use `fixed` mode in a paper run.**
+S_M1-LP is the exact continuous-relaxation lower bound;
 
----
+S_M1* is the unknown annual integer M1 optimum; and
 
-## Citation
+S_rolling-M1 is an implementable rolling M1 upper bound.
 
-If you use this code, please cite:
+Hourly cumulative M1-LP and rolling-M1 curves are chronology diagnostics only. They are not pointwise lower/upper bounds on the unknown annual M1 optimum.
 
-```bibtex
-@phdthesis{Kryeziu2026,
-  author  = {Kryeziu, Alban},
-  title   = {Novel Approaches for Optimization Problems Under Uncertainty},
-  school  = {University of Groningen, Faculty of Economics and Business},
-  year    = {2026},
-  note    = {Supervised by Prof. E. Ursavas, Dr. W. Romeijnders, Dr. S. X. Zhu}
-}
-```
+M2-MATCHED mechanism decomposition
 
----
+For the selected M3 trajectory, the code solves an ex-post M2 problem with participant allowances matched to the M3 realized physical FDE. This separates
 
-## License
+the entitlement/allocation effect; from
 
-© 2026 Alban Kryeziu, University of Groningen. All rights reserved.  
-Code is provided for academic replication purposes only.  
-Contact the author before any commercial use or redistribution.
+the state-shape effect under equal physical exposure.
+
+Nonlinear AC consistency
+
+The AC-V3 audit reconstructs actual selected policy-hour nodal P/Q states and frozen policy actions, then solves AC power flow on intact and exactly mapped configured-outage topologies.
+
+The flow comparison is
+
+DC active power (MW)  vs.  AC active power (MW)
+
+not DC MW versus AC MVA.
+
+Reported diagnostics include MAE, RMSE, identity-prediction R², Spearman rank correlation, sign agreement, voltage ranges, convergence, and restoration sensitivities.
+
+Exact M3 gamma path
+
+For the frozen selected rate vector q*, the sensitivity begins from
+
+q_raw(gamma) = 1 + gamma * (q* - 1)
+
+and projects non-endpoint values back to the feasible monotone, reference-neutral rate set inside [0.25, 2.0].
+
+The main metrics are
+
+relief = 100 * (S_M2 - S_M3) / S_M2
+
+matched efficiency =
+    100 * (S_M2 - S_M3) / (S_M2 - S_M2_MATCHED)
+
+along with physical FDE and burden changes.
+
+12. Interpretation rules
+
+The following restrictions are part of the scientific protocol:
+
+Do not describe hourly M1-LP and rolling-M1 trajectories as a pointwise optimality envelope.
+
+Do not call the seven-day block-bootstrap band an optimization-gap confidence interval.
+
+Do not independently bootstrap participants; they are coupled through the network and annual optimization.
+
+Do not interpret AC convergence alone as AC feasibility or a complete security certificate.
+
+Do not compare PTDF MW and AC MVA as if they were the same quantity.
+
+Do not claim gamma stability, monotonicity, or a performance threshold unless the exact gamma solves establish it.
+
+Report M3 security relief together with physical FDE, burden, M2-MATCHED, and the equal-exposure shape penalty.
+
+Preserve negative results. A flat M3 card, positive security restoration, or a control outperforming the selected card is a scientific outcome, not a software failure.
+
+13. Provenance and freeze discipline
+
+The repository uses SHA-256 hashes and explicit freeze/status manifests to separate:
+
+frozen parent source;
+
+frozen input data;
+
+frozen M3 cards and model bundles;
+
+amended Evaluation-V2 logic;
+
+completed annual/rolling result registries; and
+
+post-freeze read-only evidence.
+
+RUN_00_DIAGNOSE_PARENT_FREEZE.py validates the scientifically relevant invariant: every source file registered in the Evaluation-V2 freeze must still exist with its exact frozen hash. New post-freeze scripts are reported as untracked extras rather than being confused with modified frozen code.
+
+PACKAGE_MANIFEST.json in the current archive hashes the post-freeze evidence subset. It should not be interpreted as a complete hash inventory of every Python file in the combined repository. If the entire combined source tree is published as one release, generate a separate top-level release manifest for all distributed files.
+
+14. Current vs. legacy scripts
+
+For the current paper/evidence workflow:
+
+Use
+
+RUN_12_REAL_M1_BOUND_ANALYSIS.py
+RUN_13_REAL_SELECTED_AC_VALIDATION.py
+RUN_14A_COMPILE_FROZEN_RATE_BOUND_EVIDENCE.py
+RUN_14B_REAL_M3_GAMMA_PATH.py
+PLOT_IEEE_TPWRS_FINAL_FIGURES.py
+
+Treat as legacy/superseded
+
+run_06_ieee_tsg_experiments.py
+plot_ieee_tsg_figures.py
+
+The legacy plotting script contains interpretations that are intentionally rejected by the current scientific protocol, including a pointwise M1 “optimality envelope” and an MW-versus-MVA parity presentation.
+
+RUN_AC_ENGINEERING_AUDIT_V2.py remains useful as a static engineering audit, but RUN_AC_POLICY_HOUR_VALIDATION_V3.py is the relevant selected-policy-state nonlinear consistency check.
+
+PLOT_IEEE_TSG_REAL_FIGURES_COLOR.py is an alternative visual-only renderer; it does not change numerical results.
+
+One-command runner note
+
+The current RUN_ALL_IEEE_TSG_REAL_EXPERIMENTS.py references
+
+PLOT_IEEE_TSG_REAL_FIGURES.py
+
+but that filename is not present in the supplied archive. Until the runner is updated, execute Runs 12–14 explicitly and then call PLOT_IEEE_TPWRS_FINAL_FIGURES.py (recommended) or PLOT_IEEE_TSG_REAL_FIGURES_COLOR.py directly.
+
+15. Suggested .gitignore
+
+The source code, configuration templates, scientific protocol, and small manifests belong in Git. Large/reconstructable data and generated solver outputs generally do not.
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local data and frozen inputs
+data/external/
+data/derived/
+GOPACS/raw/
+results/frozen/
+
+# Generated optimization artifacts
+results/cache/
+results/logs/
+results/.transactions/
+*.sol
+*.mst
+*.bas
+*.lp
+*.mps
+
+# Large generated outputs
+outputs/results/
+outputs/figures/
+outputs/tables/
+PTDF_OUTPUT_PUBLICATION/
+
+# Local machine configuration / temporary files
+*.tmp
+
+If selected result tables, figure PDFs, or audit manifests are intentionally part of the reproducibility release, explicitly whitelist those files rather than committing every generated artifact.
+
+16. Reproducibility checklist
+
+Before treating a run as comparable to the frozen study, verify that:
+
+the frozen input root is complete;
+
+the aggregate input hash matches the expected frozen value;
+
+METHOD_FREEZE.json is unchanged;
+
+EVALUATION_FREEZE_V2.json is unchanged;
+
+the selected M3 card/model-bundle hashes match;
+
+no confirmatory-year information enters training or candidate selection;
+
+annual/rolling solver status is certified;
+
+signed-row closure passes;
+
+independent replay residuals are within tolerance;
+
+annual budget primal/dual/complementarity checks pass where applicable;
+
+Run-04 and Run-05 status registries are COMPLETE;
+
+post-freeze scripts pass RUN_00_DIAGNOSE_PARENT_FREEZE.py; and
+
+manuscript figures are generated only from committed experiment artifacts.
+
+17. Research use and citation
+
+This repository is intended to make the computational evidence auditable: assumptions, frozen decisions, optimization inputs, solver outputs, replay checks, sensitivity analyses, and publication artifacts are separated and hash-tracked.
+
+If you use the code, please cite the associated paper once its final bibliographic information is available. The repository README should be updated with the final title, authors, journal, DOI, and archival release tag at publication time.
+
+18. Contact / issues
+
+For reproducibility problems, open a GitHub issue and include:
+
+the script name;
+
+Python/Gurobi/pandapower versions;
+
+the relevant status or failure JSON;
+
+the exact exception/solver status; and
+
+whether the run is a fresh reproduction, continuation of the frozen parent study, or post-freeze analysis.
+
+Do not resolve a freeze/hash failure by regenerating the freeze manifest. Restore the expected frozen source or run a clearly separated new reproduction instead.
